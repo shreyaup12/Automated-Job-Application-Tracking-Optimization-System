@@ -1,0 +1,206 @@
+{
+  "name": "Automated Email status update",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 5,
+        "filters": {
+          "q": "is:inbox"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        16,
+        0
+      ],
+      "id": "f39966c2-f830-4881-b85d-d631795e4797",
+      "name": "Get many messages",
+      "webhookId": "2ee02856-4dc2-4c1f-9347-c170a13920e8",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "KqNvARhEkIMqdF9M",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const subject = ($json.Subject || \"\").toLowerCase();\nconst from = $json.From || \"\";\nconst body = ($json.snippet || \"\").toLowerCase();\n\nlet status = \"\";\n\n// STATUS DETECTION\nif (subject.includes(\"interview\") || body.includes(\"interview\")) {\n  status = \"Interview\";\n} \nelse if (subject.includes(\"offer\")) {\n  status = \"Offer\";\n} \nelse if (\n  subject.includes(\"rejected\") ||\n  subject.includes(\"not selected\") ||\n  body.includes(\"unfortunately\")\n) {\n  status = \"Rejected\";\n}\n\n// ❌ ignore if no status\nif (!status) return null;\n\n\n// COMPANY EXTRACTION\nlet company = \"\";\n\n// 1. from subject (best)\nconst match = subject.match(/at ([a-zA-Z]+)/);\nif (match) {\n  company = match[1];\n}\n\n// 2. fallback from body\nif (!company) {\n  const bodyMatch = body.match(/regards,\\s*([a-zA-Z ]+)/);\n  if (bodyMatch) {\n    company = bodyMatch[1].trim();\n  }\n}\n\n// 3. fallback from email\nif (!company) {\n  const emailMatch = from.match(/<(.+?)>/);\n  const email = emailMatch ? emailMatch[1] : from;\n  company = email.split(\"@\")[1]?.split(\".\")[0] || \"\";\n}\n\n// clean\ncompany = company.toLowerCase();\n\nreturn {\n  json: {\n    status,\n    company\n  }\n}; "
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "0fb9f996-9484-4e5d-a157-8b3e1ff3ea8a",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "353346a3-c7c1-8041-b4a0-c738b08647e8"
+        },
+        "limit": 10,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "7f55519b-cf64-4592-837c-b605a9a7fe0e",
+      "name": "Get many database pages1",
+      "credentials": {
+        "notionOAuth2Api": {
+          "id": "va1xVd6wsZbaER39",
+          "name": "Notion OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const emailData = $item(0).$node[\"Code in JavaScript3\"].json || {};\n\nconst emailCompany = (emailData.company || \"\").toLowerCase();\nconst emailStatus = emailData.status;\n\nconst notionItems = $input.all();\n\nlet match = null;\n\nfor (let notion of notionItems) {\n  const company = (notion.json.property_company || \"\").toLowerCase();\n\n  if (company === emailCompany) {\n    match = notion;\n    break;\n  }\n}\n\n// ❌ nothing to match → stop\nif (!match || !emailCompany || !emailStatus) return null;\n\nreturn {\n  json: {\n    pageId: match.json.id,\n    status: emailStatus\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "0ffdaf86-6e5f-4a90-aa77-135ab6228816",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": {
+          "__rl": true,
+          "value": "={{ $json.pageId }}",
+          "mode": "id"
+        },
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Status|select",
+              "selectValue": "={{$json.status}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "49d767bc-6251-443e-8bc9-1e4ac512b611",
+      "name": "Update a database page1",
+      "credentials": {
+        "notionOAuth2Api": {
+          "id": "va1xVd6wsZbaER39",
+          "name": "Notion OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -160,
+        0
+      ],
+      "id": "dd0db7f5-dac9-4309-8210-85ce798e0eb4",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Get many database pages1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many database pages1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "Update a database page1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "ea123fe9-649c-4ff0-bd85-9b86971f50d0",
+  "meta": {
+    "instanceId": "10d88cfd8ab40bdf225445846d74e59118e8724c0b4d65956007c08c7934ba05"
+  },
+  "id": "wxWb8Trjv1IxNmyp",
+  "tags": []
+}
